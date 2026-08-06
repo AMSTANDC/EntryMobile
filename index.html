@@ -2640,7 +2640,16 @@ function switchToSiteConfig(cfg, forceUpdateCategories) {
 function importSiteConfigFile(file) {
   if (!file) return;
   const reader = new FileReader();
+  let settled = false;
+  const timeoutId = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    showToast('⚠ Could not read that file — if it was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.', 'error');
+  }, 8000);
   reader.onload = ev => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
     let cfg;
     try { cfg = JSON.parse(ev.target.result); }
     catch { showToast('That file is not valid JSON', 'error'); return; }
@@ -2654,6 +2663,12 @@ function importSiteConfigFile(file) {
       showToast('Loaded ' + cfg.name + ' — reloading…', 'success');
       setTimeout(() => location.reload(), 700);
     }
+  };
+  reader.onerror = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    showToast('⚠ Could not read that file — if it was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.', 'error');
   };
   reader.readAsText(file);
 }
@@ -3406,7 +3421,16 @@ function exportBackup() {
 function importBackup(e) {
   const file = e.target.files[0]; if(!file) return;
   const reader = new FileReader();
+  let settled = false;
+  const timeoutId = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    showToast('⚠ Could not read that file — if it was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.', 'error');
+  }, 8000);
   reader.onload = ev => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
     try {
       const parsed = JSON.parse(ev.target.result);
       // Support both flat array format and object format {incidents, ppeInspections, ...}
@@ -3457,6 +3481,12 @@ function importBackup(e) {
       renderIsolationAlert(); renderPermitAlert(); renderKeysAlert(); renderLostPropertyAlert();
       showToast(`Imported ${added.length} new record(s)`,'success');
     } catch(err) { showToast('Invalid file: '+err.message,'error'); }
+  };
+  reader.onerror = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    showToast('⚠ Could not read that file — if it was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.', 'error');
   };
   reader.readAsText(file); e.target.value='';
 }
