@@ -2638,22 +2638,24 @@ function switchToSiteConfig(cfg, forceUpdateCategories) {
 }
 
 function importSiteConfigFile(file) {
-  if (!file) return;
+  if (!file) { alert('DEBUG: No file was received from the picker at all (file is null/undefined).'); return; }
+  alert('DEBUG: File selected —\nname="' + file.name + '"\nsize=' + file.size + '\ntype="' + file.type + '"\n\nTap OK to continue and attempt to read it.');
   const reader = new FileReader();
   let settled = false;
   const timeoutId = setTimeout(() => {
     if (settled) return;
     settled = true;
-    showToast('⚠ Could not read that file — if it was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.', 'error');
+    alert('DEBUG: TIMEOUT — the file was selected but reading it never completed after 8 seconds (neither succeeded nor errored).');
   }, 8000);
   reader.onload = ev => {
     if (settled) return;
     settled = true;
     clearTimeout(timeoutId);
+    alert('DEBUG: File read completed. Content length = ' + (ev.target.result ? ev.target.result.length : 0) + ' characters.');
     let cfg;
     try { cfg = JSON.parse(ev.target.result); }
-    catch { showToast('That file is not valid JSON', 'error'); return; }
-    if (!cfg.code || !cfg.name) { showToast('Config file must include at least a site name and code', 'error'); return; }
+    catch (parseErr) { alert('DEBUG: JSON.parse failed — ' + parseErr.message); return; }
+    if (!cfg.code || !cfg.name) { alert('This file is missing a "name" and/or "code" field, so it isn\'t a valid site config file.\n\nTop-level keys found in the file: ' + Object.keys(cfg).join(', ') + '\n\nThis looks like it might be the wrong file — check you\'re selecting a site_config_*.json file, not a site\'s data file.'); return; }
     upsertSiteConfig(cfg);
     const result = switchToSiteConfig(cfg, true);
     if (result && result.categoriesWriteFailed) {
@@ -2668,7 +2670,7 @@ function importSiteConfigFile(file) {
     if (settled) return;
     settled = true;
     clearTimeout(timeoutId);
-    showToast('⚠ Could not read that file — if it was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.', 'error');
+    alert('DEBUG: FileReader.onerror fired — ' + (reader.error ? reader.error.message : 'unknown error') + '. If this file was picked from Google Drive rather than a local Downloads folder, try saving it to your device first, then re-import.');
   };
   reader.readAsText(file);
 }
@@ -3541,6 +3543,7 @@ function fsSetStatus(state, label) {
   const act = document.getElementById('fsActions');
   if (getScriptUrl()) {
     act.innerHTML = `<button class="fs-btn" onclick="pullFromScript()">↺ Refresh</button>
+      <button class="fs-btn" onclick="clearLocalCacheAndRepull()" style="background:var(--danger,#DC2626);color:#fff;">🗑 Clear Cache</button>
       <button class="fs-btn" onclick="openExportModal()" style="background:var(--accent);color:#000;font-weight:700;">📊 Export</button>`;
   } else if (state === 'unlinked') {
     act.innerHTML = `<button class="fs-btn primary" onclick="fsLink()">📁 Link Data File</button>`;
@@ -5767,7 +5770,16 @@ async function pullFromScript() {
     renderLog(); renderEqLog();
     renderIsolationAlert(); renderPermitAlert(); renderKeysAlert(); renderLostPropertyAlert();
     const anyTrimmed = results.some(r => r.trimmed && r.ok);
-    if (anyTrimmed) {
+    const anyFailed   = results.some(r => !r.ok);
+    if (anyFailed) {
+      // Nothing fit even at the smallest fallback level — this device's
+      // storage for this app is essentially completely full. Existing local
+      // cache was left untouched rather than wiped, but the cloud pull
+      // couldn't be saved at all. Surface this clearly rather than leaving
+      // an empty-looking log with no explanation.
+      fsSetStatus('error', '⚠ Device storage full — could not save cloud data. Tap Clear Cache below, then Refresh.');
+      alert('Your device\'s local storage for this app is completely full — even a handful of records won\'t fit. The cloud data was retrieved successfully, but none of it could be saved locally.\n\nTap "🗑 Clear Cache" below to free up space, then "↺ Refresh" to pull the data again.');
+    } else if (anyTrimmed) {
       fsSetStatus('linked', '☁ Synced (local cache trimmed to fit) — ' + new Date().toLocaleTimeString());
     } else {
       fsSetStatus('linked', '☁ Synced — ' + new Date().toLocaleTimeString());
@@ -5776,6 +5788,36 @@ async function pullFromScript() {
     console.warn('Pull failed:', err);
     fsSetStatus('error', '⚠ Cloud unavailable — using local data');
   }
+}
+
+// Clears this site's locally-cached data (does NOT touch the cloud copy —
+// the full data is safe there) and immediately re-pulls, so storage is
+// freed and repopulated in one step.
+// Full local-storage reset for this device — clears EVERYTHING (all sites'
+// cached data, not just the active one), since clearing only the active
+// site can still fail if overall device storage is near its limit from
+// other sites' data too. The site connection itself (which site/backend
+// this device talks to) is preserved so the app doesn't lose its setup.
+function clearLocalCacheAndRepull() {
+  if (!confirm('This clears ALL locally-cached data on this device for every site set up here — not just this one. Nothing on the cloud is affected or at risk; this only frees up space on this phone. Your site connection itself is kept, so nothing needs re-importing. Continue?')) return;
+
+  let usedBefore = 0;
+  try { for (const k in localStorage) { if (localStorage.hasOwnProperty(k)) usedBefore += (localStorage[k]||'').length; } } catch(e) {}
+
+  const preservedSettings = localStorage.getItem('ams_entry_settings');
+  const preservedSitesList = localStorage.getItem('ams_master_sites');
+  try { localStorage.clear(); } catch(e) {}
+  if (preservedSettings)  { try { localStorage.setItem('ams_entry_settings', preservedSettings); } catch(e) {} }
+  if (preservedSitesList) { try { localStorage.setItem('ams_master_sites', preservedSitesList); } catch(e) {} }
+
+  let usedAfter = 0;
+  try { for (const k in localStorage) { if (localStorage.hasOwnProperty(k)) usedAfter += (localStorage[k]||'').length; } } catch(e) {}
+
+  renderLog(); renderEqLog();
+  renderIsolationAlert(); renderPermitAlert(); renderKeysAlert(); renderLostPropertyAlert();
+  fsSetStatus('saving', 'Cache cleared — refreshing…');
+  alert('Cleared ' + Math.round((usedBefore-usedAfter)/1024) + ' KB of local data (was ~' + Math.round(usedBefore/1024) + ' KB, now ~' + Math.round(usedAfter/1024) + ' KB). Now re-pulling this site\'s data from the cloud.');
+  pullFromScript();
 }
 
 // Retry queued syncs when coming back online
