@@ -723,6 +723,16 @@ button,select,input[type=checkbox],input[type=radio]{
   [style*="grid-template-columns"]{
     grid-template-columns:1fr!important;
   }
+  /* A field spanning "column 2 to the end" (grid-column:2/-1) only makes
+     sense in the original 3/4-column layout. Once the parent above is
+     forced to a single column, "column 2" no longer exists — the browser
+     doesn't just clamp this, it creates an extra implicit column to
+     satisfy the span, which silently breaks the single-column stacking
+     this whole block exists to guarantee. Reset it to span the only
+     column that exists instead. */
+  [style*="grid-column:2/-1"]{
+    grid-column:1/-1!important;
+  }
 }
 @media(min-width:481px) and (max-width:768px){
   [style*="grid-template-columns"]{
